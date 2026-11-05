@@ -1,1 +1,75 @@
 
+name: Build SM64 Auto Clicker IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract project ZIP
+        run: |
+          mkdir -p source
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Project ZIP not found"
+            exit 1
+          fi
+          unzip -q "$ZIP_FILE" -d source
+
+      - name: Locate Xcode project
+        run: |
+          PROJECT=$(find source -name "*.xcodeproj" -type d | head -n 1)
+          if [ -z "$PROJECT" ]; then
+            echo "Xcode project not found"
+            exit 1
+          fi
+          echo "PROJECT=$PROJECT" >> $GITHUB_ENV
+
+      - name: Fix source file paths
+        run: |
+          python3 - <<'PY'
+          import os
+          p = os.environ["PROJECT"] + "/project.pbxproj"
+          s = open(p).read()
+          s = s.replace(
+              "path = SM64AutoClickerApp.swift;",
+              "path = SM64AutoClicker/SM64AutoClickerApp.swift;"
+          )
+          s = s.replace(
+              "path = ContentView.swift;",
+              "path = SM64AutoClicker/ContentView.swift;"
+          )
+          open(p, "w").write(s)
+          PY
+
+      - name: Build iOS app
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -target SM64AutoClicker \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/SM64AutoClicker.app Payload/
+          zip -r SM64AutoClicker.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SM64-Auto-Clicker-IPA
+          path: SM64AutoClicker.ipa
+
